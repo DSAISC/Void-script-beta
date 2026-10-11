@@ -876,22 +876,72 @@ local function buildUI()
     new("Frame",{AnchorPoint=Vector2.new(.5,.5),Position=UD.fromScale(.5,.5),Size=UD.fromOffset(6,1.5),Rotation=-45,BackgroundColor3=C.Dim,BorderSizePixel=0,Parent=closeBtn})
     local tabs={"主要","通用","视觉","剥削","碰撞","自瞄"}
     local tabCount=#tabs
-    local TAB_W=56
-    local tabBar=new("Frame",{Position=UD.new(0,0,0,32),Size=UD.new(1,0,0,26),BackgroundColor3=C.Panel,BackgroundTransparency=0.35,BorderSizePixel=0,Parent=main})
-    new("Frame",{Position=UD.new(0,0,0,25),Size=UD.new(1,0,0,1),BackgroundColor3=C.Line,BackgroundTransparency=0.4,BorderSizePixel=0,Parent=tabBar})
-    local tabScroll=new("ScrollingFrame",{Size=UD.fromScale(1,1),BackgroundTransparency=1,BorderSizePixel=0,ScrollBarThickness=2,ScrollBarImageColor3=C.Cyan,CanvasSize=UD.new(0,tabCount*TAB_W,0,26),ScrollingDirection=Enum.ScrollingDirection.X,ScrollingEnabled=true,Parent=tabBar})
+    local TAB_W=54
+    local tabBar=new("Frame",{Position=UD.new(0,0,0,32),Size=UD.new(1,0,0,26),BackgroundColor3=C.Panel,BackgroundTransparency=0.35,BorderSizePixel=0,ClipsDescendants=true,Parent=main})
+    new("Frame",{Position=UD.new(0,0,0,25),Size=UD.new(1,0,0,1),BackgroundColor3=C.Line,BackgroundTransparency=0.4,BorderSizePixel=0,ZIndex=5,Parent=tabBar})
+    local tabHolder=new("Frame",{Size=UD.fromOffset(tabCount*TAB_W,26),BackgroundTransparency=1,Active=true,Parent=tabBar})
     local tabBtns={}
     for i,name in ipairs(tabs) do
-        tabBtns[i]=new("TextButton",{Position=UD.fromOffset((i-1)*TAB_W,0),Size=UD.fromOffset(TAB_W,26),BackgroundTransparency=1,Text=name,TextColor3=(i==1) and C.Text or C.Dim,Font=Enum.Font.GothamBold,TextSize=10,AutoButtonColor=false,TextXAlignment=Enum.TextXAlignment.Center,Parent=tabScroll})
+        tabBtns[i]=new("TextButton",{Position=UD.fromOffset((i-1)*TAB_W,0),Size=UD.fromOffset(TAB_W,26),BackgroundTransparency=1,Text=name,TextColor3=(i==1) and C.Text or C.Dim,Font=Enum.Font.GothamBold,TextSize=10,AutoButtonColor=false,TextXAlignment=Enum.TextXAlignment.Center,ZIndex=2,Parent=tabHolder})
     end
-    local tabHighlight=new("Frame",{Position=UD.fromOffset(0,23),Size=UD.fromOffset(TAB_W,2),BackgroundColor3=C.Cyan,BorderSizePixel=0,Parent=tabScroll})
+    local tabHighlight=new("Frame",{Position=UD.fromOffset(0,23),Size=UD.fromOffset(TAB_W,2),BackgroundColor3=C.Cyan,BorderSizePixel=0,ZIndex=1,Parent=tabHolder})
     grad(tabHighlight,C.Cyan,C.Purple,0)
+    local tabHolderX=0
+    local tDrag,tDStart,tStartX,tMoved=false,nil,0,false
+    local function tabHit(input)
+        local pos=input.Position
+        for i,b in ipairs(tabBtns) do
+            local ap=b.AbsolutePosition;local as=b.AbsoluteSize
+            if pos.X>=ap.X and pos.X<=ap.X+as.X and pos.Y>=ap.Y and pos.Y<=ap.Y+as.Y then return i end
+        end
+    end
+    tabHolder.InputBegan:Connect(function(input)
+        if input.UserInputType==Enum.UserInputType.MouseButton1 or input.UserInputType==Enum.UserInputType.Touch then
+            tDrag=true;tDStart=input.Position;tStartX=tabHolderX;tMoved=false
+        end
+    end)
+    UserInputService.InputChanged:Connect(function(input)
+        if not tDrag or not tDStart then return end
+        if input.UserInputType==Enum.UserInputType.MouseMovement or input.UserInputType==Enum.UserInputType.Touch then
+            local dx=input.Position.X-tDStart.X
+            if math.abs(dx)>6 then tMoved=true end
+            if tMoved then
+                local minX=math.min(0,tabBar.AbsoluteSize.X-tabCount*TAB_W)
+                tabHolderX=math.clamp(tStartX+dx,minX,0)
+                tabHolder.Position=UD.fromOffset(tabHolderX,0)
+            end
+        end
+    end)
+    UserInputService.InputEnded:Connect(function(input)
+        if input.UserInputType==Enum.UserInputType.MouseButton1 or input.UserInputType==Enum.UserInputType.Touch then
+            if tDrag and not tMoved and tDStart then
+                local idx=tabHit({Position=tDStart})
+                if idx then
+                    local cb=tabBtns[idx]
+                    cb.TextColor3=C.Text
+                    if currentTab~=idx then
+                        tabBtns[currentTab].TextColor3=C.Dim
+                        pages[currentTab].Visible=false
+                        pages[idx].Visible=true
+                        tw(tabHighlight,0.22,{Position=UD.fromOffset((idx-1)*TAB_W,23)})
+                        currentTab=idx
+                    end
+                end
+            end
+            tDrag=false;tDStart=nil
+        end
+    end)
+    for i,b in ipairs(tabBtns) do
+        b.MouseEnter:Connect(function() if i~=currentTab then tw(b,0.15,{TextColor3=C.Text}) end end)
+        b.MouseLeave:Connect(function() if i~=currentTab then tw(b,0.15,{TextColor3=C.Dim}) end end)
+    end
     local content=new("Frame",{Position=UD.new(0,0,0,58),Size=UD.new(1,0,1,-84),BackgroundTransparency=1,Parent=main})
     local pages={}
     local pageCanvas={220,420,420,680,190,560}
     for i=1,tabCount do
         pages[i]=new("ScrollingFrame",{Size=UD.fromScale(1,1),BackgroundTransparency=1,BorderSizePixel=0,ScrollBarThickness=3,ScrollBarImageColor3=C.Cyan,CanvasSize=UD.new(0,0,0,pageCanvas[i] or 300),ScrollingDirection=Enum.ScrollingDirection.Y,Visible=(i==1),Parent=content})
     end
+    local currentTab=1
     local resetToggles={}
     local resetSliders={}
     local resetColors={}
@@ -1208,19 +1258,6 @@ local function buildUI()
                 else AimbotTeamWhitelist[mt.Name]=true;notify("白名单","已加入: "..mt.Name) end
             else notify("白名单","你没有队伍") end
         end)
-    end
-    local currentTab=1
-    local function switchTab(idx)
-        if idx==currentTab then return end
-        tabBtns[currentTab].TextColor3=C.Dim;tabBtns[idx].TextColor3=C.Text
-        pages[currentTab].Visible=false;pages[idx].Visible=true
-        tw(tabHighlight,0.22,{Position=UD.fromOffset((idx-1)*TAB_W,23)})
-        currentTab=idx
-    end
-    for i,b in ipairs(tabBtns) do
-        b.Activated:Connect(function() switchTab(i) end)
-        b.MouseEnter:Connect(function() if i~=currentTab then tw(b,0.15,{TextColor3=C.Text}) end end)
-        b.MouseLeave:Connect(function() if i~=currentTab then tw(b,0.15,{TextColor3=C.Dim}) end end)
     end
     local sb=new("Frame",{Position=UD.new(0,1,-24),Size=UD.new(1,0,0,24),BackgroundColor3=C.Panel,BackgroundTransparency=0.35,BorderSizePixel=0,Parent=main})
     corner(sb,8)
