@@ -88,13 +88,8 @@ RunService.Heartbeat:Connect(function(dt)
         local hrp=char:FindFirstChild("HumanoidRootPart")
         if hrp then
             local extra=baseSpeed*State.SpeedMultiplier-baseSpeed
-            if extra>0 then
-                local dir=h.MoveDirection
-                if dir.Magnitude>0.01 then
-                    local delta=dir.Unit*extra*dt
-                    hrp.CFrame=hrp.CFrame+delta
-                    if CAM then CAM.CFrame=CAM.CFrame+delta end
-                end
+            if extra>0 then local dir=h.MoveDirection
+                if dir.Magnitude>0.01 then local delta=dir.Unit*extra*dt;hrp.CFrame=hrp.CFrame+delta;if CAM then CAM.CFrame=CAM.CFrame+delta end end
             end
         end
     end
@@ -723,7 +718,6 @@ task.spawn(function()
             updatePromptESPLabels()
             for prompt,d in pairs(PromptESPObjects) do if not prompt.Parent or not d.gui.Parent then clearPromptESP(prompt) end end
         end
-
     end
 end)
 local function runLoadScreen()
@@ -869,7 +863,7 @@ local function buildUI()
     local lmD=new("Frame",{AnchorPoint=Vector2.new(.5,.5),Position=UD.fromScale(.5,.5),Size=UD.fromOffset(7,7),BackgroundColor3=C.Cyan,BorderSizePixel=0,Rotation=45,Parent=logoMini})
     corner(lmD,1.5);grad(lmD,C.Cyan,C.Purple,45)
     new("TextLabel",{Position=UD.fromOffset(30,0),Size=UD.new(1,-140,1,0),BackgroundTransparency=1,Text="VOID",TextColor3=C.Text,Font=Enum.Font.GothamBold,TextSize=12,TextXAlignment=Enum.TextXAlignment.Left,Parent=titleBar})
-    new("TextLabel",{Position=UD.fromOffset(72,0),Size=UD.fromOffset(60,32),BackgroundTransparency=1,Text="V3 测试版",TextColor3=C.Dim,Font=Enum.Font.Code,TextSize=9,TextXAlignment=Enum.TextXAlignment.Left,Parent=titleBar})
+    new("TextLabel",{Position=UD.fromOffset(72,0),Size=UD.fromOffset(60,32),BackgroundTransparency=1,Text="V4",TextColor3=C.Dim,Font=Enum.Font.Code,TextSize=9,TextXAlignment=Enum.TextXAlignment.Left,Parent=titleBar})
     local onlineDot=new("Frame",{AnchorPoint=Vector2.new(.5,.5),Position=UD.new(1,-88,.5,0),Size=UD.fromOffset(6,6),BackgroundColor3=C.Green,BorderSizePixel=0,Parent=titleBar})
     corner(onlineDot,3)
     new("TextLabel",{Position=UD.new(1,-78,.5,-5),Size=UD.fromOffset(28,10),BackgroundTransparency=1,Text="ONLINE",TextColor3=C.Green,Font=Enum.Font.Code,TextSize=8,TextXAlignment=Enum.TextXAlignment.Left,Parent=titleBar})
@@ -882,15 +876,19 @@ local function buildUI()
     new("Frame",{AnchorPoint=Vector2.new(.5,.5),Position=UD.fromScale(.5,.5),Size=UD.fromOffset(6,1.5),Rotation=-45,BackgroundColor3=C.Dim,BorderSizePixel=0,Parent=closeBtn})
     local tabs={"主要","通用","视觉","剥削","碰撞","自瞄"}
     local tabCount=#tabs
+    local TAB_W=56
     local tabBar=new("Frame",{Position=UD.new(0,0,0,32),Size=UD.new(1,0,0,26),BackgroundColor3=C.Panel,BackgroundTransparency=0.35,BorderSizePixel=0,Parent=main})
     new("Frame",{Position=UD.new(0,0,0,25),Size=UD.new(1,0,0,1),BackgroundColor3=C.Line,BackgroundTransparency=0.4,BorderSizePixel=0,Parent=tabBar})
+    local tabScroll=new("ScrollingFrame",{Size=UD.fromScale(1,1),BackgroundTransparency=1,BorderSizePixel=0,ScrollBarThickness=2,ScrollBarImageColor3=C.Cyan,CanvasSize=UD.new(0,tabCount*TAB_W,0,26),ScrollingDirection=Enum.ScrollingDirection.X,ScrollingEnabled=true,Parent=tabBar})
     local tabBtns={}
-    local tabHighlight=new("Frame",{Position=UD.fromOffset(0,23),Size=UD.new(1/tabCount,0,0,2),BackgroundColor3=C.Cyan,BorderSizePixel=0,Parent=tabBar})
+    for i,name in ipairs(tabs) do
+        tabBtns[i]=new("TextButton",{Position=UD.fromOffset((i-1)*TAB_W,0),Size=UD.fromOffset(TAB_W,26),BackgroundTransparency=1,Text=name,TextColor3=(i==1) and C.Text or C.Dim,Font=Enum.Font.GothamBold,TextSize=10,AutoButtonColor=false,TextXAlignment=Enum.TextXAlignment.Center,Parent=tabScroll})
+    end
+    local tabHighlight=new("Frame",{Position=UD.fromOffset(0,23),Size=UD.fromOffset(TAB_W,2),BackgroundColor3=C.Cyan,BorderSizePixel=0,Parent=tabScroll})
     grad(tabHighlight,C.Cyan,C.Purple,0)
-    for i,name in ipairs(tabs) do tabBtns[i]=new("TextButton",{Position=UD.new((i-1)/tabCount,0,0,0),Size=UD.new(1/tabCount,0,1,0),BackgroundTransparency=1,Text=name,TextColor3=(i==1) and C.Text or C.Dim,Font=Enum.Font.GothamBold,TextSize=10,AutoButtonColor=false,TextXAlignment=Enum.TextXAlignment.Center,Parent=tabBar}) end
     local content=new("Frame",{Position=UD.new(0,0,0,58),Size=UD.new(1,0,1,-84),BackgroundTransparency=1,Parent=main})
     local pages={}
-    local pageCanvas={220,420,420,620,190,560}
+    local pageCanvas={220,420,420,680,190,560}
     for i=1,tabCount do
         pages[i]=new("ScrollingFrame",{Size=UD.fromScale(1,1),BackgroundTransparency=1,BorderSizePixel=0,ScrollBarThickness=3,ScrollBarImageColor3=C.Cyan,CanvasSize=UD.new(0,0,0,pageCanvas[i] or 300),ScrollingDirection=Enum.ScrollingDirection.Y,Visible=(i==1),Parent=content})
     end
@@ -1164,6 +1162,7 @@ local function buildUI()
         end)
         makeToggle(p,250,"人物自转","角色持续旋转",C.Purple,false,function(on) SpinEnabled=on;if on then StartSpin() else StopSpin() end end)
         makeSlider(p,290,"旋转速度",C.Purple,1,200,5,"",0,function(v) SpinSpeed=v end)
+        makeBigBtn(p,336,"无旋转甩飞"," ",C.Purple,function() runExternal("https://rawscripts.net/raw/Universal-Script-Fling-Gui-230233","无旋转甩飞") end)
     end
     do
         local p=pages[5]
@@ -1215,7 +1214,7 @@ local function buildUI()
         if idx==currentTab then return end
         tabBtns[currentTab].TextColor3=C.Dim;tabBtns[idx].TextColor3=C.Text
         pages[currentTab].Visible=false;pages[idx].Visible=true
-        tw(tabHighlight,0.22,{Position=UD.fromOffset((idx-1)/tabCount*WIN_W,23)})
+        tw(tabHighlight,0.22,{Position=UD.fromOffset((idx-1)*TAB_W,23)})
         currentTab=idx
     end
     for i,b in ipairs(tabBtns) do
