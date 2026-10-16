@@ -74,111 +74,50 @@ local function applyJump() local _,h=getChar();if not h then return end h.UseJum
 local function setJump(v) State.CustomJump=v;applyJump() end
 local function setJumpEnabled(v) State.JumpEnabled=v;applyJump() end
 
--- ==================== 防拉回 ====================
+-- ==================== 防拉回（屏蔽一切拉回） ====================
 local AntiPullback={
     Enabled=false,
     Conn=nil,
-    SavedCFrame=nil,
-    Threshold=30,
+    LastPos=nil,
 }
 local function ToggleAntiPullback(on)
     AntiPullback.Enabled=on
     if AntiPullback.Conn then AntiPullback.Conn:Disconnect();AntiPullback.Conn=nil end
     if on then
-        AntiPullback.SavedCFrame=nil
-        AntiPullback.Conn=RunService.Heartbeat:Connect(function()
+        AntiPullback.LastPos=nil
+        AntiPullback.Conn=RunService.Heartbeat:Connect(function(dt)
             if not AntiPullback.Enabled then return end
             local c=LP.Character
-            if not c then return end
+            if not c then AntiPullback.LastPos=nil;return end
             local r=c:FindFirstChild("HumanoidRootPart")
-            if not r then return end
+            if not r then AntiPullback.LastPos=nil;return end
             pcall(function()
                 if r:GetNetworkOwner()~=LP then r:SetNetworkOwner(LP) end
             end)
-            if AntiPullback.SavedCFrame then
-                local dist=(r.Position-AntiPullback.SavedCFrame.Position).Magnitude
-                if dist>AntiPullback.Threshold then
-                    r.CFrame=AntiPullback.SavedCFrame
+            local pos=r.Position
+            if AntiPullback.LastPos then
+                local moved=(pos-AntiPullback.LastPos).Magnitude
+                -- 单帧正常位移远小于 15 stud；超过则判定为服务器强制拉回
+                if moved>15 then
+                    local _,y,_=r.CFrame:ToEulerAnglesYXZ()
+                    r.CFrame=CFrame.new(AntiPullback.LastPos)*CFrame.Angles(0,y,0)
                     r.AssemblyLinearVelocity=Vector3.zero
                     r.AssemblyAngularVelocity=Vector3.zero
+                    pos=AntiPullback.LastPos
                 end
             end
-            AntiPullback.SavedCFrame=r.CFrame
+            AntiPullback.LastPos=pos
         end)
         notify("防拉回","已开启")
     else
-        AntiPullback.SavedCFrame=nil
+        AntiPullback.LastPos=nil
         notify("防拉回","已关闭")
     end
 end
-local function SetAntiPullbackThreshold(v) AntiPullback.Threshold=v end
-local function SetAntiPullbackAnchor(cf)
-    if AntiPullback.Enabled then AntiPullback.SavedCFrame=cf end
+local function ResetAntiPullbackAnchor()
+    AntiPullback.LastPos=nil
 end
--- ==================================================
-
--- ==================== 强制加速 ====================
-local ForceSpeed={Enabled=false,Multiplier=32,Conn=nil}
-local function ReadKeyDir()
-    local x,z=0,0
-    pcall(function()
-        for _,k in ipairs(UserInputService:GetKeysPressed()) do
-            if k.KeyCode==Enum.KeyCode.W or k.KeyCode==Enum.KeyCode.Up then z=z+1
-            elseif k.KeyCode==Enum.KeyCode.S or k.KeyCode==Enum.KeyCode.Down then z=z-1
-            elseif k.KeyCode==Enum.KeyCode.A or k.KeyCode==Enum.KeyCode.Left then x=x-1
-            elseif k.KeyCode==Enum.KeyCode.D or k.KeyCode==Enum.KeyCode.Right then x=x+1 end
-        end
-    end)
-    return x,z
-end
-local function ToggleForceSpeed(on)
-    ForceSpeed.Enabled=on
-    if ForceSpeed.Conn then ForceSpeed.Conn:Disconnect();ForceSpeed.Conn=nil end
-    if on then
-        ForceSpeed.Conn=RunService.Heartbeat:Connect(function(dt)
-            if not ForceSpeed.Enabled then return end
-            local c=LP.Character
-            if not c then return end
-            local hrp=c:FindFirstChild("HumanoidRootPart")
-            local hum=c:FindFirstChildOfClass("Humanoid")
-            if not hrp or not hum then return end
-            -- 强制解除锚定 / PlatformStand（服务器锁定时也能动）
-            if hrp.Anchored then hrp.Anchored=false end
-            if hum.PlatformStand then hum.PlatformStand=false end
-            if hum.WalkSpeed<=0.01 then hum.WalkSpeed=ForceSpeed.Multiplier end
-            pcall(function()
-                if hrp:GetNetworkOwner()~=LP then hrp:SetNetworkOwner(LP) end
-            end)
-            -- 方向优先用 MoveDirection；被锁死为 0 时用键盘输入 + 相机方向推算
-            local dir=hum.MoveDirection
-            if dir.Magnitude<0.01 then
-                local x,z=ReadKeyDir()
-                if x~=0 or z~=0 then
-                    local look=CAM.CFrame.LookVector
-                    local right=CAM.CFrame.RightVector
-                    local fl=Vector3.new(look.X,0,look.Z)
-                    local fr=Vector3.new(right.X,0,right.Z)
-                    if fl.Magnitude>0.01 then fl=fl.Unit end
-                    if fr.Magnitude>0.01 then fr=fr.Unit end
-                    local v=fl*z+fr*x
-                    if v.Magnitude>0.01 then dir=v.Unit end
-                end
-            end
-            if dir.Magnitude>0.01 then
-                local delta=dir.Unit*ForceSpeed.Multiplier*dt
-                hrp.CFrame=hrp.CFrame+delta
-                if CAM then CAM.CFrame=CAM.CFrame+delta end
-                hrp.AssemblyLinearVelocity=Vector3.zero
-                hrp.AssemblyAngularVelocity=Vector3.zero
-            end
-        end)
-        notify("强制加速","已开启")
-    else
-        notify("强制加速","已关闭")
-    end
-end
-local function SetForceSpeedMultiplier(v) ForceSpeed.Multiplier=v end
--- ====================================================
+-- ============================================================
 
 local function stopSpectate() spectateTarget=nil local _,h=getChar() if h then CAM.CameraSubject=h end if spectateSetOn then spectateSetOn(false) end end
 local function stopFollow() followTarget=nil if followSetOn then followSetOn(false) end end
@@ -643,7 +582,7 @@ local function TeleportToPlayer(t)
     if r and tr then
         local targetCF=tr.CFrame*CFrame.new(0,4,0)
         r.CFrame=targetCF
-        SetAntiPullbackAnchor(targetCF)
+        ResetAntiPullbackAnchor()
     end
 end
 local function SpectatePlayer(t)
@@ -794,7 +733,6 @@ local function closeAllFeatures()
     setNoclip(false);setInfiniteJump(false);setInstantInteract(false);setPromptESP(false)
     setRemoveFog(false);setNightVision(false);setHitboxEnabled(false)
     ToggleAntiPullback(false)
-    ToggleForceSpeed(false)
     State.ESPHighlightEnabled=false;State.ESPNameEnabled=false;State.ESPHealthEnabled=false
     State.SpeedEnabled=false;State.JumpEnabled=false
     stopSpectate();stopFollow()
@@ -819,7 +757,6 @@ LP.CharacterAdded:Connect(function()
     task.wait(0.5)
     if State.NoclipEnabled then setNoclip(true) end
     if AntiPullback.Enabled then ToggleAntiPullback(true) end
-    if ForceSpeed.Enabled then ToggleForceSpeed(true) end
     local _,h=getChar()
     if h then baseSpeed=h.WalkSpeed;lastSetSpeed=baseSpeed;updateBaseSpeedLbl();h.UseJumpPower=true;h.JumpPower=State.JumpEnabled and State.CustomJump or BASE_JUMP end
     for _,p in ipairs(Players:GetPlayers()) do if p~=LP then task.defer(createPlayerESP,p) end end
@@ -1004,7 +941,7 @@ local function buildUI()
     for i,name in ipairs(tabs) do tabBtns[i]=new("TextButton",{Position=UD.new((i-1)/tabCount,0,0,0),Size=UD.new(1/tabCount,0,1,0),BackgroundTransparency=1,Text=name,TextColor3=(i==1) and C.Text or C.Dim,Font=Enum.Font.GothamBold,TextSize=10,AutoButtonColor=false,TextXAlignment=Enum.TextXAlignment.Center,Parent=tabBar}) end
     local content=new("Frame",{Position=UD.new(0,0,0,58),Size=UD.new(1,0,1,-84),BackgroundTransparency=1,Parent=main})
     local pages={}
-    local pageCanvas={220,560,420,620,190,560}
+    local pageCanvas={260,400,420,620,190,560}
     for i=1,tabCount do
         pages[i]=new("ScrollingFrame",{Size=UD.fromScale(1,1),BackgroundTransparency=1,BorderSizePixel=0,ScrollBarThickness=3,ScrollBarImageColor3=C.Cyan,CanvasSize=UD.new(0,0,0,pageCanvas[i] or 300),ScrollingDirection=Enum.ScrollingDirection.Y,Visible=(i==1),Parent=content})
     end
@@ -1168,6 +1105,8 @@ local function buildUI()
         scroll.CanvasSize=UD.new(0,0,0,layout.AbsoluteContentSize.Y+10)
         xBtn.Activated:Connect(function() overlay:Destroy() end)
     end
+
+    -- ==================== 主要栏 ====================
     do
         local p=pages[1]
         local sc=new("Frame",{Position=UD.fromOffset(10,6),Size=UD.new(1,-20,0,66),BackgroundColor3=C.Panel,BackgroundTransparency=0.15,BorderSizePixel=0,Parent=p})
@@ -1209,24 +1148,23 @@ local function buildUI()
             end)
             if not ok then notify("TX Script","加载失败: "..tostring(err)) end
         end)
+        makeToggle(p,204,"防拉回","屏蔽一切服务器强制拉回",C.Red,false,function(on) ToggleAntiPullback(on) end)
     end
+    -- ==================================================
+
     do
         local p=pages[2]
         local _,dl=makeToggle(p,6,"启用移动速度","原始移速: 16",C.Cyan,false,function(on) State.SpeedEnabled=on end)
         speedToggleDesc=dl
         updateBaseSpeedLbl()
         makeSlider(p,46,"速度倍数",C.Cyan,0.1,20,State.SpeedMultiplier,"x",1,function(v) State.SpeedMultiplier=v end)
-        makeToggle(p,88,"强制加速","无视一切速度限制 (锁速/减速/被固定时也可移动)",C.Red,false,function(on) ToggleForceSpeed(on) end)
-        makeSlider(p,128,"强制速度",C.Red,1,200,32,"",0,function(v) SetForceSpeedMultiplier(v) end)
-        makeToggle(p,170,"启用跳跃高度","JUMP TOGGLE",C.Purple,false,function(on) setJumpEnabled(on) end)
-        makeSlider(p,210,"跳跃高度",C.Purple,50,300,State.CustomJump,"",0,function(v) setJump(v) end)
-        makeToggle(p,252,"无限跳跃","INFINITE JUMP",C.Cyan,State.InfiniteJumpEnabled,function(on) setInfiniteJump(on) end)
-        makeActionBtn(p,292,"飞行模式","FLY MODE",C.Cyan,"启动",flyingScript)
-        makeToggle(p,332,"穿墙模式","NOCLIP",C.Cyan,State.NoclipEnabled,function(on) setNoclip(on) end)
-        makeToggle(p,372,"秒互动","INSTANT INTERACT",C.Purple,State.InstantInteractEnabled,function(on) setInstantInteract(on) end)
-        makeToggle(p,412,"防摔落伤害","ANTI FALL",C.Green,false,function(on) ToggleAntiFall(on) end)
-        makeToggle(p,452,"防拉回","反制服务器强制拉回 (加速/传送)",C.Red,false,function(on) ToggleAntiPullback(on) end)
-        makeSlider(p,492,"拉回阈值",C.Red,5,200,30,"",0,function(v) SetAntiPullbackThreshold(v) end)
+        makeToggle(p,88,"启用跳跃高度","JUMP TOGGLE",C.Purple,false,function(on) setJumpEnabled(on) end)
+        makeSlider(p,128,"跳跃高度",C.Purple,50,300,State.CustomJump,"",0,function(v) setJump(v) end)
+        makeToggle(p,170,"无限跳跃","INFINITE JUMP",C.Cyan,State.InfiniteJumpEnabled,function(on) setInfiniteJump(on) end)
+        makeActionBtn(p,210,"飞行模式","FLY MODE",C.Cyan,"启动",flyingScript)
+        makeToggle(p,250,"穿墙模式","NOCLIP",C.Cyan,State.NoclipEnabled,function(on) setNoclip(on) end)
+        makeToggle(p,290,"秒互动","INSTANT INTERACT",C.Purple,State.InstantInteractEnabled,function(on) setInstantInteract(on) end)
+        makeToggle(p,330,"防摔落伤害","ANTI FALL",C.Green,false,function(on) ToggleAntiFall(on) end)
     end
     do
         local p=pages[3]
