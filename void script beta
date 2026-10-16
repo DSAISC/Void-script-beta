@@ -10,40 +10,6 @@ local CAM=workspace.CurrentCamera
 local UD=UDim2
 if not _G.VoidConfig then _G.VoidConfig={LoadScreenEnabled=true} end
 local C={Void=Color3.fromRGB(6,2,16),Bg=Color3.fromRGB(14,5,28),Panel=Color3.fromRGB(24,12,45),Panel2=Color3.fromRGB(38,20,65),Line=Color3.fromRGB(70,40,110),Cyan=Color3.fromRGB(180,100,255),Purple=Color3.fromRGB(110,50,200),Green=Color3.fromRGB(160,220,255),Red=Color3.fromRGB(255,70,120),Text=Color3.fromRGB(230,215,255),Dim=Color3.fromRGB(140,110,180),BarBg=Color3.fromRGB(30,18,50)}
-
--- ==================== 主题定义 ====================
-local THEMES = {
-    void = { name="VOID", image="rbxassetid://131769990624851",
-        primary=Color3.fromRGB(180,100,255), secondary=Color3.fromRGB(110,50,200),
-        bg=Color3.fromRGB(14,5,28), panel=Color3.fromRGB(24,12,45), panel2=Color3.fromRGB(38,20,65),
-        line=Color3.fromRGB(70,40,110), text=Color3.fromRGB(230,215,255), dim=Color3.fromRGB(140,110,180),
-        barBg=Color3.fromRGB(30,18,50) },
-    noli = { name="Noli", image="rbxassetid://74258347405899",
-        primary=Color3.fromRGB(180,100,255), secondary=Color3.fromRGB(110,50,200),
-        bg=Color3.fromRGB(14,5,28), panel=Color3.fromRGB(24,12,45), panel2=Color3.fromRGB(38,20,65),
-        line=Color3.fromRGB(70,40,110), text=Color3.fromRGB(230,215,255), dim=Color3.fromRGB(140,110,180),
-        barBg=Color3.fromRGB(30,18,50) },
-    coolkid = { name="coolkid", image="rbxassetid://113082982805967",
-        primary=Color3.fromRGB(255,70,90), secondary=Color3.fromRGB(180,20,40),
-        bg=Color3.fromRGB(20,6,10), panel=Color3.fromRGB(35,12,18), panel2=Color3.fromRGB(55,20,28),
-        line=Color3.fromRGB(110,45,55), text=Color3.fromRGB(255,220,225), dim=Color3.fromRGB(180,120,130),
-        barBg=Color3.fromRGB(50,20,28) },
-    jason = { name="jason", image="rbxassetid://95707965984397",
-        primary=Color3.fromRGB(255,150,60), secondary=Color3.fromRGB(210,90,15),
-        bg=Color3.fromRGB(24,12,4), panel=Color3.fromRGB(40,20,8), panel2=Color3.fromRGB(62,34,14),
-        line=Color3.fromRGB(120,70,30), text=Color3.fromRGB(255,235,215), dim=Color3.fromRGB(190,140,90),
-        barBg=Color3.fromRGB(55,32,16) },
-    simple = { name="简约", image=nil,
-        primary=Color3.fromRGB(70,150,255), secondary=Color3.fromRGB(40,100,200),
-        bg=Color3.fromRGB(28,28,30), panel=Color3.fromRGB(38,38,42), panel2=Color3.fromRGB(50,50,55),
-        line=Color3.fromRGB(75,75,80), text=Color3.fromRGB(230,230,235), dim=Color3.fromRGB(150,150,155),
-        barBg=Color3.fromRGB(45,45,50) },
-}
-if not _G.VoidConfig.Theme then _G.VoidConfig.Theme="void" end
-local CurrentThemeKey = _G.VoidConfig.Theme
-local themeCards = {}
--- ==================================================
-
 local BASE_JUMP=50
 local baseSpeed,lastSetSpeed=16,16
 local speedToggleDesc
@@ -107,6 +73,113 @@ end
 local function applyJump() local _,h=getChar();if not h then return end h.UseJumpPower=true h.JumpPower=State.JumpEnabled and State.CustomJump or BASE_JUMP end
 local function setJump(v) State.CustomJump=v;applyJump() end
 local function setJumpEnabled(v) State.JumpEnabled=v;applyJump() end
+
+-- ==================== 防拉回 ====================
+local AntiPullback={
+    Enabled=false,
+    Conn=nil,
+    SavedCFrame=nil,
+    Threshold=30,
+}
+local function ToggleAntiPullback(on)
+    AntiPullback.Enabled=on
+    if AntiPullback.Conn then AntiPullback.Conn:Disconnect();AntiPullback.Conn=nil end
+    if on then
+        AntiPullback.SavedCFrame=nil
+        AntiPullback.Conn=RunService.Heartbeat:Connect(function()
+            if not AntiPullback.Enabled then return end
+            local c=LP.Character
+            if not c then return end
+            local r=c:FindFirstChild("HumanoidRootPart")
+            if not r then return end
+            pcall(function()
+                if r:GetNetworkOwner()~=LP then r:SetNetworkOwner(LP) end
+            end)
+            if AntiPullback.SavedCFrame then
+                local dist=(r.Position-AntiPullback.SavedCFrame.Position).Magnitude
+                if dist>AntiPullback.Threshold then
+                    r.CFrame=AntiPullback.SavedCFrame
+                    r.AssemblyLinearVelocity=Vector3.zero
+                    r.AssemblyAngularVelocity=Vector3.zero
+                end
+            end
+            AntiPullback.SavedCFrame=r.CFrame
+        end)
+        notify("防拉回","已开启")
+    else
+        AntiPullback.SavedCFrame=nil
+        notify("防拉回","已关闭")
+    end
+end
+local function SetAntiPullbackThreshold(v) AntiPullback.Threshold=v end
+local function SetAntiPullbackAnchor(cf)
+    if AntiPullback.Enabled then AntiPullback.SavedCFrame=cf end
+end
+-- ==================================================
+
+-- ==================== 强制加速 ====================
+local ForceSpeed={Enabled=false,Multiplier=32,Conn=nil}
+local function ReadKeyDir()
+    local x,z=0,0
+    pcall(function()
+        for _,k in ipairs(UserInputService:GetKeysPressed()) do
+            if k.KeyCode==Enum.KeyCode.W or k.KeyCode==Enum.KeyCode.Up then z=z+1
+            elseif k.KeyCode==Enum.KeyCode.S or k.KeyCode==Enum.KeyCode.Down then z=z-1
+            elseif k.KeyCode==Enum.KeyCode.A or k.KeyCode==Enum.KeyCode.Left then x=x-1
+            elseif k.KeyCode==Enum.KeyCode.D or k.KeyCode==Enum.KeyCode.Right then x=x+1 end
+        end
+    end)
+    return x,z
+end
+local function ToggleForceSpeed(on)
+    ForceSpeed.Enabled=on
+    if ForceSpeed.Conn then ForceSpeed.Conn:Disconnect();ForceSpeed.Conn=nil end
+    if on then
+        ForceSpeed.Conn=RunService.Heartbeat:Connect(function(dt)
+            if not ForceSpeed.Enabled then return end
+            local c=LP.Character
+            if not c then return end
+            local hrp=c:FindFirstChild("HumanoidRootPart")
+            local hum=c:FindFirstChildOfClass("Humanoid")
+            if not hrp or not hum then return end
+            -- 强制解除锚定 / PlatformStand（服务器锁定时也能动）
+            if hrp.Anchored then hrp.Anchored=false end
+            if hum.PlatformStand then hum.PlatformStand=false end
+            if hum.WalkSpeed<=0.01 then hum.WalkSpeed=ForceSpeed.Multiplier end
+            pcall(function()
+                if hrp:GetNetworkOwner()~=LP then hrp:SetNetworkOwner(LP) end
+            end)
+            -- 方向优先用 MoveDirection；被锁死为 0 时用键盘输入 + 相机方向推算
+            local dir=hum.MoveDirection
+            if dir.Magnitude<0.01 then
+                local x,z=ReadKeyDir()
+                if x~=0 or z~=0 then
+                    local look=CAM.CFrame.LookVector
+                    local right=CAM.CFrame.RightVector
+                    local fl=Vector3.new(look.X,0,look.Z)
+                    local fr=Vector3.new(right.X,0,right.Z)
+                    if fl.Magnitude>0.01 then fl=fl.Unit end
+                    if fr.Magnitude>0.01 then fr=fr.Unit end
+                    local v=fl*z+fr*x
+                    if v.Magnitude>0.01 then dir=v.Unit end
+                end
+            end
+            if dir.Magnitude>0.01 then
+                local delta=dir.Unit*ForceSpeed.Multiplier*dt
+                hrp.CFrame=hrp.CFrame+delta
+                if CAM then CAM.CFrame=CAM.CFrame+delta end
+                hrp.AssemblyLinearVelocity=Vector3.zero
+                hrp.AssemblyAngularVelocity=Vector3.zero
+            end
+        end)
+        notify("强制加速","已开启")
+    else
+        notify("强制加速","已关闭")
+    end
+end
+local function SetForceSpeedMultiplier(v) ForceSpeed.Multiplier=v end
+-- ====================================================
+
 local function stopSpectate() spectateTarget=nil local _,h=getChar() if h then CAM.CameraSubject=h end if spectateSetOn then spectateSetOn(false) end end
 local function stopFollow() followTarget=nil if followSetOn then followSetOn(false) end end
 RunService.Heartbeat:Connect(function(dt)
@@ -567,7 +640,11 @@ local function TeleportToPlayer(t)
     local ch=LP.Character;local tc=t.Character
     if not ch or not tc then return end
     local r=ch:FindFirstChild("HumanoidRootPart");local tr=tc:FindFirstChild("HumanoidRootPart")
-    if r and tr then r.CFrame=tr.CFrame*CFrame.new(0,4,0) end
+    if r and tr then
+        local targetCF=tr.CFrame*CFrame.new(0,4,0)
+        r.CFrame=targetCF
+        SetAntiPullbackAnchor(targetCF)
+    end
 end
 local function SpectatePlayer(t)
     if not t then return end
@@ -716,6 +793,8 @@ LP.CharacterAdded:Connect(function(c) if SpinEnabled then task.wait(0.5);ApplyAn
 local function closeAllFeatures()
     setNoclip(false);setInfiniteJump(false);setInstantInteract(false);setPromptESP(false)
     setRemoveFog(false);setNightVision(false);setHitboxEnabled(false)
+    ToggleAntiPullback(false)
+    ToggleForceSpeed(false)
     State.ESPHighlightEnabled=false;State.ESPNameEnabled=false;State.ESPHealthEnabled=false
     State.SpeedEnabled=false;State.JumpEnabled=false
     stopSpectate();stopFollow()
@@ -739,6 +818,8 @@ end
 LP.CharacterAdded:Connect(function()
     task.wait(0.5)
     if State.NoclipEnabled then setNoclip(true) end
+    if AntiPullback.Enabled then ToggleAntiPullback(true) end
+    if ForceSpeed.Enabled then ToggleForceSpeed(true) end
     local _,h=getChar()
     if h then baseSpeed=h.WalkSpeed;lastSetSpeed=baseSpeed;updateBaseSpeedLbl();h.UseJumpPower=true;h.JumpPower=State.JumpEnabled and State.CustomJump or BASE_JUMP end
     for _,p in ipairs(Players:GetPlayers()) do if p~=LP then task.defer(createPlayerESP,p) end end
@@ -890,77 +971,6 @@ local function buildUI()
     local mainStroke=stroke(main,C.Cyan,1,0.5)
     techCorners(main,C.Cyan,14,2,0.1)
     local mainScale=fitScale(main,WIN_W,30,0.75)
-
-    -- ==================== applyTheme ====================
-    local function applyTheme(key, animate)
-        if not THEMES[key] then return end
-        local oldT = THEMES[CurrentThemeKey] or THEMES.void
-        local newT = THEMES[key]
-        CurrentThemeKey = key
-        _G.VoidConfig.Theme = key
-
-        local map = {}
-        for k,v in pairs(oldT) do
-            if typeof(v)=="Color3" and typeof(newT[k])=="Color3" then map[v]=newT[k] end
-        end
-        local function remap(c)
-            if typeof(c)~="Color3" then return nil end
-            return map[c]
-        end
-        local function upd(inst, prop, c)
-            if animate then TweenService:Create(inst, TweenInfo.new(0.22), {[prop]=c}):Play()
-            else inst[prop]=c end
-        end
-
-        for _,root in ipairs({gui, FOVGui}) do
-            if root then
-                for _,d in ipairs(root:GetDescendants()) do
-                    for _,prop in ipairs({"BackgroundColor3","TextColor3","ImageColor3","TextStrokeColor3"}) do
-                        local ok,val = pcall(function() return d[prop] end)
-                        if ok and val then
-                            local nc = remap(val)
-                            if nc then upd(d, prop, nc) end
-                        end
-                    end
-                    if d:IsA("UIStroke") then
-                        local nc = remap(d.Color)
-                        if nc then upd(d, "Color", nc) end
-                    end
-                    if d:IsA("UIGradient") then
-                        local seq = d.Color
-                        local kps, changed = {}, false
-                        for _,kp in ipairs(seq.Keypoints) do
-                            local nc = remap(kp.Value)
-                            if nc then table.insert(kps, ColorSequenceKeypoint.new(kp.Time, nc)); changed=true
-                            else table.insert(kps, kp) end
-                        end
-                        if changed then d.Color = ColorSequence.new(kps) end
-                    end
-                end
-            end
-        end
-
-        C.Cyan=newT.primary; C.Purple=newT.secondary
-        C.Bg=newT.bg; C.Panel=newT.panel; C.Panel2=newT.panel2
-        C.Line=newT.line; C.Text=newT.text; C.Dim=newT.dim; C.BarBg=newT.barBg
-
-        local bgImg = main:FindFirstChild("VoidBackground")
-        if bgImg then
-            if newT.image then bgImg.Image=newT.image; bgImg.Visible=true
-            else bgImg.Visible=false end
-        end
-
-        for k,cc in pairs(themeCards) do
-            if cc.card and cc.card.Parent then
-                local sel = (k==key)
-                cc.stroke.Color = sel and newT.primary or newT.line
-                cc.stroke.Transparency = sel and 0 or 0.5
-                cc.label.TextColor3 = sel and newT.primary or newT.dim
-            end
-        end
-    end
-    -- ==================================================
-
     local topGrad=grad(new("Frame",{Size=UD.new(1,-24,0,2),Position=UD.new(0,12,0,0),BackgroundColor3=Color3.new(1,1,1),BorderSizePixel=0,Parent=main}),C.Cyan,C.Purple,0)
     topGrad.Transparency=NumberSequence.new({NumberSequenceKeypoint.new(0,1),NumberSequenceKeypoint.new(.5,0),NumberSequenceKeypoint.new(1,1)})
     local titleBar=new("Frame",{Size=UD.new(1,0,0,32),BackgroundColor3=C.Panel,BackgroundTransparency=0.35,BorderSizePixel=0,Parent=main})
@@ -994,7 +1004,7 @@ local function buildUI()
     for i,name in ipairs(tabs) do tabBtns[i]=new("TextButton",{Position=UD.new((i-1)/tabCount,0,0,0),Size=UD.new(1/tabCount,0,1,0),BackgroundTransparency=1,Text=name,TextColor3=(i==1) and C.Text or C.Dim,Font=Enum.Font.GothamBold,TextSize=10,AutoButtonColor=false,TextXAlignment=Enum.TextXAlignment.Center,Parent=tabBar}) end
     local content=new("Frame",{Position=UD.new(0,0,0,58),Size=UD.new(1,0,1,-84),BackgroundTransparency=1,Parent=main})
     local pages={}
-    local pageCanvas={320,420,420,620,190,560}
+    local pageCanvas={220,560,420,620,190,560}
     for i=1,tabCount do
         pages[i]=new("ScrollingFrame",{Size=UD.fromScale(1,1),BackgroundTransparency=1,BorderSizePixel=0,ScrollBarThickness=3,ScrollBarImageColor3=C.Cyan,CanvasSize=UD.new(0,0,0,pageCanvas[i] or 300),ScrollingDirection=Enum.ScrollingDirection.Y,Visible=(i==1),Parent=content})
     end
@@ -1158,8 +1168,6 @@ local function buildUI()
         scroll.CanvasSize=UD.new(0,0,0,layout.AbsoluteContentSize.Y+10)
         xBtn.Activated:Connect(function() overlay:Destroy() end)
     end
-
-    -- ==================== 主要栏 ====================
     do
         local p=pages[1]
         local sc=new("Frame",{Position=UD.fromOffset(10,6),Size=UD.new(1,-20,0,66),BackgroundColor3=C.Panel,BackgroundTransparency=0.15,BorderSizePixel=0,Parent=p})
@@ -1181,37 +1189,7 @@ local function buildUI()
                 task.wait(1)
             end
         end)
-
-        -- ===== UI 主题选择器 =====
-        new("TextLabel",{Position=UD.fromOffset(10,78),Size=UD.new(1,-20,0,12),BackgroundTransparency=1,Text="UI 主题",TextColor3=C.Text,Font=Enum.Font.GothamBold,TextSize=11,TextXAlignment=Enum.TextXAlignment.Left,Parent=p})
-        local themeKeys={"void","noli","coolkid","jason","simple"}
-        local CW,CH,GAP=56,70,4
-        for i,key in ipairs(themeKeys) do
-            local T=THEMES[key]
-            local x=10+(i-1)*(CW+GAP)
-            local card=new("TextButton",{Position=UD.fromOffset(x,94),Size=UD.fromOffset(CW,CH),BackgroundColor3=C.Panel,BackgroundTransparency=0.15,BorderSizePixel=0,Text="",AutoButtonColor=false,Parent=p})
-            corner(card,5)
-            local cs=stroke(card,(key==CurrentThemeKey) and C.Cyan or C.Line,1.5,(key==CurrentThemeKey) and 0 or 0.5)
-            local imgBox=new("Frame",{Position=UD.fromOffset(6,6),Size=UD.fromOffset(CW-12,40),BackgroundColor3=C.Panel2,BorderSizePixel=0,Parent=card})
-            corner(imgBox,3)
-            if T.image then
-                local img=new("ImageLabel",{Size=UD.fromScale(1,1),BackgroundTransparency=1,Image=T.image,ScaleType=Enum.ScaleType.Crop,Parent=imgBox})
-                corner(img,3)
-            else
-                local cb2=new("Frame",{AnchorPoint=Vector2.new(.5,.5),Position=UD.fromScale(.5,.5),Size=UD.fromOffset(24,24),BackgroundColor3=T.primary,BorderSizePixel=0,Parent=imgBox})
-                corner(cb2,12)
-            end
-            local nl=new("TextLabel",{Position=UD.fromOffset(0,50),Size=UD.new(1,0,0,16),BackgroundTransparency=1,Text=T.name,TextColor3=(key==CurrentThemeKey) and C.Cyan or C.Dim,Font=Enum.Font.GothamBold,TextSize=9,Parent=card})
-            themeCards[key]={card=card,stroke=cs,label=nl}
-            card.Activated:Connect(function()
-                if key==CurrentThemeKey then return end
-                applyTheme(key,true)
-            end)
-            card.MouseEnter:Connect(function() if key~=CurrentThemeKey then tw(card,0.15,{BackgroundTransparency=0.3}) end end)
-            card.MouseLeave:Connect(function() if key~=CurrentThemeKey then tw(card,0.15,{BackgroundTransparency=0.15}) end end)
-        end
-
-        local rb=new("TextButton",{Position=UD.fromOffset(10,174),Size=UD.new(1,-20,0,26),BackgroundColor3=C.Panel2,BorderSizePixel=0,Text="重置所有功能",TextColor3=C.Text,Font=Enum.Font.GothamBold,TextSize=11,AutoButtonColor=false,Parent=p})
+        local rb=new("TextButton",{Position=UD.fromOffset(10,80),Size=UD.new(1,-20,0,26),BackgroundColor3=C.Panel2,BorderSizePixel=0,Text="重置所有功能",TextColor3=C.Text,Font=Enum.Font.GothamBold,TextSize=11,AutoButtonColor=false,Parent=p})
         corner(rb,5);stroke(rb,C.Line,1,0.5)
         rb.MouseEnter:Connect(function() tw(rb,0.15,{BackgroundColor3=C.Panel}) end)
         rb.MouseLeave:Connect(function() tw(rb,0.15,{BackgroundColor3=C.Panel2}) end)
@@ -1222,8 +1200,8 @@ local function buildUI()
             closeAllFeatures()
             tw(rb,0.08,{BackgroundColor3=C.Green});tw(rb,0.2,{BackgroundColor3=C.Panel2})
         end)
-        makeToggle(p,210,"启动加载界面","LOAD SCREEN",C.Cyan,State.LoadScreenEnabled,function(on) State.LoadScreenEnabled=on;_G.VoidConfig.LoadScreenEnabled=on end,true)
-        makeActionBtn(p,254,"TX Script","全自动翻译",C.Green,"启动",function()
+        makeToggle(p,116,"启动加载界面","LOAD SCREEN",C.Cyan,State.LoadScreenEnabled,function(on) State.LoadScreenEnabled=on;_G.VoidConfig.LoadScreenEnabled=on end,true)
+        makeActionBtn(p,160,"TX Script","全自动翻译",C.Green,"启动",function()
             local ok,err=pcall(function()
                 TX = "TX Script"
                 Script = "全自动翻译"
@@ -1232,21 +1210,23 @@ local function buildUI()
             if not ok then notify("TX Script","加载失败: "..tostring(err)) end
         end)
     end
-    -- ==================================================
-
     do
         local p=pages[2]
         local _,dl=makeToggle(p,6,"启用移动速度","原始移速: 16",C.Cyan,false,function(on) State.SpeedEnabled=on end)
         speedToggleDesc=dl
         updateBaseSpeedLbl()
         makeSlider(p,46,"速度倍数",C.Cyan,0.1,20,State.SpeedMultiplier,"x",1,function(v) State.SpeedMultiplier=v end)
-        makeToggle(p,88,"启用跳跃高度","JUMP TOGGLE",C.Purple,false,function(on) setJumpEnabled(on) end)
-        makeSlider(p,128,"跳跃高度",C.Purple,50,300,State.CustomJump,"",0,function(v) setJump(v) end)
-        makeToggle(p,170,"无限跳跃","INFINITE JUMP",C.Cyan,State.InfiniteJumpEnabled,function(on) setInfiniteJump(on) end)
-        makeActionBtn(p,210,"飞行模式","FLY MODE",C.Cyan,"启动",flyingScript)
-        makeToggle(p,250,"穿墙模式","NOCLIP",C.Cyan,State.NoclipEnabled,function(on) setNoclip(on) end)
-        makeToggle(p,290,"秒互动","INSTANT INTERACT",C.Purple,State.InstantInteractEnabled,function(on) setInstantInteract(on) end)
-        makeToggle(p,330,"防摔落伤害","ANTI FALL",C.Green,false,function(on) ToggleAntiFall(on) end)
+        makeToggle(p,88,"强制加速","无视一切速度限制 (锁速/减速/被固定时也可移动)",C.Red,false,function(on) ToggleForceSpeed(on) end)
+        makeSlider(p,128,"强制速度",C.Red,1,200,32,"",0,function(v) SetForceSpeedMultiplier(v) end)
+        makeToggle(p,170,"启用跳跃高度","JUMP TOGGLE",C.Purple,false,function(on) setJumpEnabled(on) end)
+        makeSlider(p,210,"跳跃高度",C.Purple,50,300,State.CustomJump,"",0,function(v) setJump(v) end)
+        makeToggle(p,252,"无限跳跃","INFINITE JUMP",C.Cyan,State.InfiniteJumpEnabled,function(on) setInfiniteJump(on) end)
+        makeActionBtn(p,292,"飞行模式","FLY MODE",C.Cyan,"启动",flyingScript)
+        makeToggle(p,332,"穿墙模式","NOCLIP",C.Cyan,State.NoclipEnabled,function(on) setNoclip(on) end)
+        makeToggle(p,372,"秒互动","INSTANT INTERACT",C.Purple,State.InstantInteractEnabled,function(on) setInstantInteract(on) end)
+        makeToggle(p,412,"防摔落伤害","ANTI FALL",C.Green,false,function(on) ToggleAntiFall(on) end)
+        makeToggle(p,452,"防拉回","反制服务器强制拉回 (加速/传送)",C.Red,false,function(on) ToggleAntiPullback(on) end)
+        makeSlider(p,492,"拉回阈值",C.Red,5,200,30,"",0,function(v) SetAntiPullbackThreshold(v) end)
     end
     do
         local p=pages[3]
@@ -1424,12 +1404,5 @@ local function buildUI()
             task.wait(0.8)
         end
     end)
-
-    -- 若上次选择了非 void 主题，重新应用
-    if _G.VoidConfig.Theme and _G.VoidConfig.Theme ~= "void" then
-        local wanted = _G.VoidConfig.Theme
-        CurrentThemeKey = "void"
-        applyTheme(wanted, false)
-    end
 end
 buildUI()
