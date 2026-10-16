@@ -74,50 +74,68 @@ local function applyJump() local _,h=getChar();if not h then return end h.UseJum
 local function setJump(v) State.CustomJump=v;applyJump() end
 local function setJumpEnabled(v) State.JumpEnabled=v;applyJump() end
 
--- ==================== 防拉回（屏蔽一切拉回） ====================
-local AntiPullback={
-    Enabled=false,
-    Conn=nil,
-    LastPos=nil,
-}
-local function ToggleAntiPullback(on)
-    AntiPullback.Enabled=on
-    if AntiPullback.Conn then AntiPullback.Conn:Disconnect();AntiPullback.Conn=nil end
-    if on then
-        AntiPullback.LastPos=nil
-        AntiPullback.Conn=RunService.Heartbeat:Connect(function(dt)
-            if not AntiPullback.Enabled then return end
-            local c=LP.Character
-            if not c then AntiPullback.LastPos=nil;return end
-            local r=c:FindFirstChild("HumanoidRootPart")
-            if not r then AntiPullback.LastPos=nil;return end
-            pcall(function()
-                if r:GetNetworkOwner()~=LP then r:SetNetworkOwner(LP) end
-            end)
-            local pos=r.Position
-            if AntiPullback.LastPos then
-                local moved=(pos-AntiPullback.LastPos).Magnitude
-                -- 单帧正常位移远小于 15 stud；超过则判定为服务器强制拉回
-                if moved>15 then
-                    local _,y,_=r.CFrame:ToEulerAnglesYXZ()
-                    r.CFrame=CFrame.new(AntiPullback.LastPos)*CFrame.Angles(0,y,0)
-                    r.AssemblyLinearVelocity=Vector3.zero
-                    r.AssemblyAngularVelocity=Vector3.zero
-                    pos=AntiPullback.LastPos
-                end
-            end
-            AntiPullback.LastPos=pos
-        end)
-        notify("防拉回","已开启")
-    else
-        AntiPullback.LastPos=nil
-        notify("防拉回","已关闭")
+-- ==================== 屏幕防误触 ====================
+local GuardZones={Enabled=false,Size=0,Buttons={},FadeToken=0,Gui=nil}
+local function setupGuardZones()
+    if GuardZones.Gui then return end
+    local sg=new("ScreenGui",{Name="VoidGuard",ResetOnSpawn=false,IgnoreGuiInset=true,DisplayOrder=9998,Parent=PG})
+    GuardZones.Gui=sg
+    local configs={
+        {name="Top",    anchor=Vector2.new(0,0),   pos=UD.new(0,0,0,0),   size=UD.new(1,0,0,0)},
+        {name="Bottom", anchor=Vector2.new(0,1),   pos=UD.new(0,0,1,0),   size=UD.new(1,0,0,0)},
+        {name="Left",   anchor=Vector2.new(0,0),   pos=UD.new(0,0,0,0),   size=UD.new(0,0,1,0)},
+        {name="Right",  anchor=Vector2.new(1,0),   pos=UD.new(1,0,0,0),   size=UD.new(0,0,1,0)},
+    }
+    for _,cfg in ipairs(configs) do
+        local b=new("TextButton",{
+            Name=cfg.name,
+            AnchorPoint=cfg.anchor,
+            Position=cfg.pos,
+            Size=cfg.size,
+            BackgroundColor3=Color3.fromRGB(255,90,140),
+            BackgroundTransparency=1,
+            BorderSizePixel=0,
+            Text="",
+            AutoButtonColor=false,
+            Active=false,
+            Parent=sg,
+        })
+        GuardZones.Buttons[cfg.name]=b
     end
 end
-local function ResetAntiPullbackAnchor()
-    AntiPullback.LastPos=nil
+local function applyGuardSize(size)
+    size=math.clamp(math.floor(size+0.5),0,200)
+    GuardZones.Size=size
+    local b=GuardZones.Buttons
+    if not b.Top then return end
+    b.Top.Size=UD.new(1,0,0,size)
+    b.Bottom.Size=UD.new(1,0,0,size)
+    b.Left.Size=UD.new(0,size,1,0)
+    b.Right.Size=UD.new(0,size,1,0)
+    local active=GuardZones.Enabled and size>0
+    for _,v in pairs(b) do v.Active=active end
 end
--- ============================================================
+local function flashGuardZones(size)
+    applyGuardSize(size)
+    GuardZones.FadeToken=GuardZones.FadeToken+1
+    local myToken=GuardZones.FadeToken
+    if size<=0 then return end
+    for _,v in pairs(GuardZones.Buttons) do
+        v.BackgroundTransparency=0.45
+    end
+    task.delay(5,function()
+        if GuardZones.FadeToken~=myToken then return end
+        for _,v in pairs(GuardZones.Buttons) do
+            tw(v,1.4,{BackgroundTransparency=1})
+        end
+    end)
+end
+local function setGuardEnabled(on)
+    GuardZones.Enabled=on
+    applyGuardSize(GuardZones.Size)
+end
+setupGuardZones()
+-- ====================================================
 
 local function stopSpectate() spectateTarget=nil local _,h=getChar() if h then CAM.CameraSubject=h end if spectateSetOn then spectateSetOn(false) end end
 local function stopFollow() followTarget=nil if followSetOn then followSetOn(false) end end
@@ -580,9 +598,7 @@ local function TeleportToPlayer(t)
     if not ch or not tc then return end
     local r=ch:FindFirstChild("HumanoidRootPart");local tr=tc:FindFirstChild("HumanoidRootPart")
     if r and tr then
-        local targetCF=tr.CFrame*CFrame.new(0,4,0)
-        r.CFrame=targetCF
-        ResetAntiPullbackAnchor()
+        r.CFrame=tr.CFrame*CFrame.new(0,4,0)
     end
 end
 local function SpectatePlayer(t)
@@ -732,7 +748,6 @@ LP.CharacterAdded:Connect(function(c) if SpinEnabled then task.wait(0.5);ApplyAn
 local function closeAllFeatures()
     setNoclip(false);setInfiniteJump(false);setInstantInteract(false);setPromptESP(false)
     setRemoveFog(false);setNightVision(false);setHitboxEnabled(false)
-    ToggleAntiPullback(false)
     State.ESPHighlightEnabled=false;State.ESPNameEnabled=false;State.ESPHealthEnabled=false
     State.SpeedEnabled=false;State.JumpEnabled=false
     stopSpectate();stopFollow()
@@ -756,7 +771,6 @@ end
 LP.CharacterAdded:Connect(function()
     task.wait(0.5)
     if State.NoclipEnabled then setNoclip(true) end
-    if AntiPullback.Enabled then ToggleAntiPullback(true) end
     local _,h=getChar()
     if h then baseSpeed=h.WalkSpeed;lastSetSpeed=baseSpeed;updateBaseSpeedLbl();h.UseJumpPower=true;h.JumpPower=State.JumpEnabled and State.CustomJump or BASE_JUMP end
     for _,p in ipairs(Players:GetPlayers()) do if p~=LP then task.defer(createPlayerESP,p) end end
@@ -939,11 +953,11 @@ local function buildUI()
     local tabHighlight=new("Frame",{Position=UD.fromOffset(0,23),Size=UD.new(1/tabCount,0,0,2),BackgroundColor3=C.Cyan,BorderSizePixel=0,Parent=tabBar})
     grad(tabHighlight,C.Cyan,C.Purple,0)
     for i,name in ipairs(tabs) do tabBtns[i]=new("TextButton",{Position=UD.new((i-1)/tabCount,0,0,0),Size=UD.new(1/tabCount,0,1,0),BackgroundTransparency=1,Text=name,TextColor3=(i==1) and C.Text or C.Dim,Font=Enum.Font.GothamBold,TextSize=10,AutoButtonColor=false,TextXAlignment=Enum.TextXAlignment.Center,Parent=tabBar}) end
-    local content=new("Frame",{Position=UD.new(0,0,0,58),Size=UD.new(1,0,1,-84),BackgroundTransparency=1,Parent=main})
+    local content=new("Frame",{Position=UD.new(0,0,0,58),Size=UD.new(1,0,1,-84),BackgroundTransparency=1,ClipsDescendants=true,Parent=main})
     local pages={}
-    local pageCanvas={260,400,420,620,190,560}
+    local pageCanvas={300,400,420,620,190,560}
     for i=1,tabCount do
-        pages[i]=new("ScrollingFrame",{Size=UD.fromScale(1,1),BackgroundTransparency=1,BorderSizePixel=0,ScrollBarThickness=3,ScrollBarImageColor3=C.Cyan,CanvasSize=UD.new(0,0,0,pageCanvas[i] or 300),ScrollingDirection=Enum.ScrollingDirection.Y,Visible=(i==1),Parent=content})
+        pages[i]=new("ScrollingFrame",{Position=UD.new(0,0,0,0),Size=UD.fromScale(1,1),BackgroundTransparency=1,BorderSizePixel=0,ScrollBarThickness=3,ScrollBarImageColor3=C.Cyan,CanvasSize=UD.new(0,0,0,pageCanvas[i] or 300),ScrollingDirection=Enum.ScrollingDirection.Y,Visible=(i==1),Parent=content})
     end
     local resetToggles={}
     local resetSliders={}
@@ -964,15 +978,19 @@ local function buildUI()
         local on=default or false
         local function setOn(v)
             on=v
-            tw(knob,0.18,{Position=on and UD.new(0,16,.5,0) or UD.new(0,2,.5,0),BackgroundColor3=on and accent or C.Dim},Enum.EasingStyle.Back)
+            tw(knob,0.22,{Position=on and UD.new(0,16,.5,0) or UD.new(0,2,.5,0),BackgroundColor3=on and accent or C.Dim},Enum.EasingStyle.Back)
             ts.Color=on and accent or C.Line;ts.Transparency=on and 0.2 or 0.6
-            tw(bar,0.15,{BackgroundColor3=on and accent or C.Line})
+            tw(bar,0.18,{BackgroundColor3=on and accent or C.Line})
             dl.TextColor3=on and accent or C.Dim
-            tw(row,0.15,{BackgroundTransparency=on and 0.3 or 0.15})
+            tw(row,0.18,{BackgroundTransparency=on and 0.3 or 0.15})
             if cb then cb(on) end
         end
         if on then knob.Position=UD.new(0,16,.5,0);knob.BackgroundColor3=accent;ts.Color=accent;ts.Transparency=0.2;bar.BackgroundColor3=accent;dl.TextColor3=accent;row.BackgroundTransparency=0.3 end
-        hit.Activated:Connect(function() setOn(not on) end)
+        hit.Activated:Connect(function()
+            tw(knob,0.06,{Size=UD.fromOffset(14,14)})
+            tw(knob,0.16,{Size=UD.fromOffset(12,12)})
+            setOn(not on)
+        end)
         if not noReset then table.insert(resetToggles,setOn) end
         return setOn,dl
     end
@@ -1004,12 +1022,24 @@ local function buildUI()
             local pp=math.clamp((input.Position.X-track.AbsolutePosition.X)/track.AbsoluteSize.X,0,1)
             local v=rnd(minV+pp*(maxV-minV))
             local pp2=(v-minV)/(maxV-minV)
-            fill.Size=UD.new(pp2,0,1,0);dot.Position=UD.new(pp2,0,.5,0);vb.Text=fmt(v)
+            tw(fill,0.12,{Size=UD.new(pp2,0,1,0)},Enum.EasingStyle.Quint)
+            tw(dot,0.12,{Position=UD.new(pp2,0,.5,0)},Enum.EasingStyle.Quint)
+            vb.Text=fmt(v)
             if cb then cb(v) end
         end
-        hit.InputBegan:Connect(function(input) if input.UserInputType==Enum.UserInputType.MouseButton1 or input.UserInputType==Enum.UserInputType.Touch then dragging=true;upd(input) end end)
+        hit.InputBegan:Connect(function(input)
+            if input.UserInputType==Enum.UserInputType.MouseButton1 or input.UserInputType==Enum.UserInputType.Touch then
+                dragging=true;upd(input)
+                tw(dot,0.15,{Size=UD.fromOffset(15,15)},Enum.EasingStyle.Back)
+            end
+        end)
         UserInputService.InputChanged:Connect(function(input) if dragging and (input.UserInputType==Enum.UserInputType.MouseMovement or input.UserInputType==Enum.UserInputType.Touch) then upd(input) end end)
-        UserInputService.InputEnded:Connect(function(input) if input.UserInputType==Enum.UserInputType.MouseButton1 or input.UserInputType==Enum.UserInputType.Touch then dragging=false end end)
+        UserInputService.InputEnded:Connect(function(input)
+            if input.UserInputType==Enum.UserInputType.MouseButton1 or input.UserInputType==Enum.UserInputType.Touch then
+                if dragging then tw(dot,0.2,{Size=UD.fromOffset(11,11)},Enum.EasingStyle.Back) end
+                dragging=false
+            end
+        end)
         vb.FocusLost:Connect(function()
             local n=tonumber((vb.Text:gsub("[^%d%.%-]","")))
             if n then setV(n,true) else setV(defV,false) end
@@ -1032,6 +1062,8 @@ local function buildUI()
                 local old=cur;cur=i
                 local os_=btns[old]:FindFirstChildOfClass("UIStroke");if os_ then os_.Color=C.Line;os_.Transparency=0.6 end
                 local ns=btns[i]:FindFirstChildOfClass("UIStroke");if ns then ns.Color=accent;ns.Transparency=0 end
+                tw(b,0.15,{Size=UD.fromOffset(bw+3,bw+3)},Enum.EasingStyle.Back)
+                tw(b,0.2,{Size=UD.fromOffset(bw,bw)},Enum.EasingStyle.Quad)
                 if cb then cb(c.Color) end
             end)
         end
@@ -1063,28 +1095,18 @@ local function buildUI()
         btn.MouseEnter:Connect(function() if not active then tw(btn,0.15,{BackgroundTransparency=0.15}) end end)
         btn.MouseLeave:Connect(function() if not active then tw(btn,0.15,{BackgroundTransparency=0}) end end)
         btn.Activated:Connect(function()
-            tw(btn,0.06,{Size=UD.fromOffset(56,20)});tw(btn,0.14,{Size=UD.fromOffset(60,22)})
+            tw(btn,0.06,{Size=UD.fromOffset(56,20)});tw(btn,0.14,{Size=UD.fromOffset(60,22)},Enum.EasingStyle.Back)
             if cb then cb(setActive,active) end
         end)
         return setActive
     end
-    local function makeBigBtn(parent,y,text,accent,cb)
-        local btn=new("TextButton",{Position=UD.fromOffset(10,y),Size=UD.new(1,-20,0,50),BackgroundColor3=C.Panel,BackgroundTransparency=0.15,BorderSizePixel=0,Text="",AutoButtonColor=false,Parent=parent})
-        corner(btn,6);stroke(btn,accent,1,0.35)
-        local bar=new("Frame",{Position=UD.fromOffset(0,10),Size=UD.fromOffset(3,30),BackgroundColor3=accent,BorderSizePixel=0,Parent=btn})
-        corner(bar,1.5)
-        new("TextLabel",{Position=UD.fromOffset(14,0),Size=UD.new(1,-20,1,0),BackgroundTransparency=1,Text=text,TextColor3=C.Text,Font=Enum.Font.GothamBold,TextSize=12,TextXAlignment=Enum.TextXAlignment.Left,TextWrapped=true,Parent=btn})
-        btn.MouseEnter:Connect(function() tw(btn,0.15,{BackgroundTransparency=0.3}) end)
-        btn.MouseLeave:Connect(function() tw(btn,0.15,{BackgroundTransparency=0.15}) end)
-        btn.Activated:Connect(function()
-            tw(btn,0.08,{BackgroundColor3=accent});task.wait(0.1);tw(btn,0.2,{BackgroundColor3=C.Panel})
-            if cb then cb() end
-        end)
-    end
     local function showPlayerSelect(cb)
-        local overlay=new("Frame",{Size=UD.fromScale(1,1),BackgroundColor3=Color3.new(0,0,0),BackgroundTransparency=0.5,BorderSizePixel=0,ZIndex=100,Parent=gui})
+        local overlay=new("Frame",{Size=UD.fromScale(1,1),BackgroundColor3=Color3.new(0,0,0),BackgroundTransparency=1,BorderSizePixel=0,ZIndex=100,Parent=gui})
+        tw(overlay,0.2,{BackgroundTransparency=0.5})
         local list=new("Frame",{AnchorPoint=Vector2.new(.5,.5),Position=UD.fromScale(.5,.5),Size=UD.fromOffset(220,240),BackgroundColor3=C.Bg,BorderSizePixel=0,ZIndex=101,Parent=overlay})
         corner(list,6);stroke(list,C.Cyan,1,0.3)
+        local listScale=new("UIScale",{Scale=0.85,Parent=list})
+        tw(listScale,0.28,{Scale=1},Enum.EasingStyle.Back)
         local header=new("Frame",{Size=UD.new(1,0,0,28),BackgroundColor3=C.Panel,BorderSizePixel=0,ZIndex=102,Parent=list})
         corner(header,6)
         new("TextLabel",{Position=UD.fromOffset(10,0),Size=UD.new(1,-40,1,0),BackgroundTransparency=1,Text="选择玩家",TextColor3=C.Text,Font=Enum.Font.GothamBold,TextSize=11,TextXAlignment=Enum.TextXAlignment.Left,ZIndex=103,Parent=header})
@@ -1148,7 +1170,8 @@ local function buildUI()
             end)
             if not ok then notify("TX Script","加载失败: "..tostring(err)) end
         end)
-        makeToggle(p,204,"防拉回","屏蔽一切服务器强制拉回",C.Red,false,function(on) ToggleAntiPullback(on) end)
+        makeToggle(p,204,"屏幕防误触","LOCK  EDGE  TOUCH",C.Red,false,function(on) setGuardEnabled(on) end)
+        makeSlider(p,244,"防误触范围",C.Red,0,200,GuardZones.Size," px",0,function(v) flashGuardZones(v) end)
     end
     -- ==================================================
 
@@ -1270,8 +1293,13 @@ local function buildUI()
     local function switchTab(idx)
         if idx==currentTab then return end
         tabBtns[currentTab].TextColor3=C.Dim;tabBtns[idx].TextColor3=C.Text
-        pages[currentTab].Visible=false;pages[idx].Visible=true
-        tw(tabHighlight,0.22,{Position=UD.fromOffset((idx-1)/tabCount*WIN_W,23)})
+        local oldPage=pages[currentTab]
+        local newPage=pages[idx]
+        oldPage.Visible=false
+        newPage.Visible=true
+        newPage.Position=UD.new(0,16,0,0)
+        tw(newPage,0.32,{Position=UD.new(0,0,0,0)},Enum.EasingStyle.Quint)
+        tw(tabHighlight,0.26,{Position=UD.fromOffset((idx-1)/tabCount*WIN_W,23)},Enum.EasingStyle.Quint)
         currentTab=idx
     end
     for i,b in ipairs(tabBtns) do
@@ -1309,30 +1337,32 @@ local function buildUI()
         mini.Visible=false
         main.Position=mainHomePos
         main.Visible=true
-        mainScale.Scale=0.86
-        tw(mainScale,0.3,{Scale=1},Enum.EasingStyle.Back)
+        mainScale.Scale=0.78
+        tw(mainScale,0.45,{Scale=1},Enum.EasingStyle.Back)
     end)
     makeDraggable(main,dragHandle)
     minBtn.Activated:Connect(function()
         tw(minBtn,0.08,{BackgroundColor3=C.Cyan});tw(minBtn,0.15,{BackgroundColor3=C.Panel2})
         main.Visible=false
+        mainScale.Scale=1
         mini.Position=UD.fromOffset(CAM.ViewportSize.X-MINI-20,CAM.ViewportSize.Y*0.4)
         miniHomePos=mini.Position
         mini.Visible=true
         msc.Scale=0.4
-        tw(msc,0.35,{Scale=1},Enum.EasingStyle.Back)
+        tw(msc,0.4,{Scale=1},Enum.EasingStyle.Back)
     end)
     closeBtn.Activated:Connect(function()
         tw(closeBtn,0.08,{BackgroundColor3=C.Red})
-        tw(mainScale,0.18,{Scale=0.85});tw(main,0.18,{BackgroundTransparency=1})
-        task.wait(0.2)
+        tw(mainScale,0.22,{Scale=0.85},Enum.EasingStyle.Back)
+        task.wait(0.24)
         mini.Visible=false;main.Visible=false
+        mainScale.Scale=1
         closeAllFeatures()
         task.wait(0.05)
         gui:Destroy()
     end)
-    main.Visible=true;mainScale.Scale=0.86
-    tw(mainScale,0.38,{Scale=1},Enum.EasingStyle.Back)
+    main.Visible=true;mainScale.Scale=0.82
+    tw(mainScale,0.48,{Scale=1},Enum.EasingStyle.Back)
     task.spawn(function()
         while main.Parent do
             local p2=(math.sin(os.clock()*2)+1)/2
