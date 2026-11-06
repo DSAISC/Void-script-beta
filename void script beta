@@ -21,6 +21,7 @@ local PromptESPObjects={}
 local infJumpConn,instantConn,promptConn,hitboxConn,noclipConn
 local HitboxOrig=setmetatable({},{__mode="k"})
 local SCRIPT_START=tick()
+local Spatial={Enabled=false,BB=nil,Height=3,Depth=0,MainRef=nil,HomePos=nil,HomeAnchor=nil}
 local function new(c,p) local i=Instance.new(c);local pt;for k,v in pairs(p or {}) do if k=="Parent" then pt=v else i[k]=v end end;if pt then i.Parent=pt end;return i end
 local function corner(p,r) return new("UICorner",{CornerRadius=UDim.new(0,r),Parent=p}) end
 local function stroke(p,c,t,tr) return new("UIStroke",{Color=c,Thickness=t or 1,Transparency=tr or 0,ApplyStrokeMode=Enum.ApplyStrokeMode.Border,Parent=p}) end
@@ -49,7 +50,11 @@ end
 local function makeDraggable(t,h,onClick)
     h=h or t
     local dg,ds,sp,mv=false,nil,nil,false
-    h.InputBegan:Connect(function(input,gp) if gp then return end if input.UserInputType==Enum.UserInputType.MouseButton1 or input.UserInputType==Enum.UserInputType.Touch then dg,mv=true,false;ds=input.Position;sp=t.Position end end)
+    h.InputBegan:Connect(function(input,gp)
+        if gp then return end
+        if Spatial and Spatial.Enabled then return end
+        if input.UserInputType==Enum.UserInputType.MouseButton1 or input.UserInputType==Enum.UserInputType.Touch then dg,mv=true,false;ds=input.Position;sp=t.Position end
+    end)
     UserInputService.InputChanged:Connect(function(input) if not dg then return end if input.UserInputType==Enum.UserInputType.MouseMovement or input.UserInputType==Enum.UserInputType.Touch then local d=input.Position-ds;if d.Magnitude>4 then mv=true end;local vp=CAM.ViewportSize;t.Position=UD.new(0,math.clamp(sp.X.Offset+d.X,-t.AbsoluteSize.X+60,vp.X-60),0,math.clamp(sp.Y.Offset+d.Y,0,vp.Y-30)) end end)
     UserInputService.InputEnded:Connect(function(input) if not dg then return end if input.UserInputType==Enum.UserInputType.MouseButton1 or input.UserInputType==Enum.UserInputType.Touch then dg=false;if not mv and onClick then task.defer(onClick) end end end)
 end
@@ -100,7 +105,10 @@ local function applyGuardSize(size)
     b.Left.Size=UD.new(0,size,1,0)
     b.Right.Size=UD.new(0,size,1,0)
     local active=GuardZones.Enabled and size>0
-    for _,v in pairs(b) do v.Active=active end
+    for _,v in pairs(b) do
+        v.Active=active
+        pcall(function() v.Interactable=active end)
+    end
 end
 local function flashGuardZones(size)
     applyGuardSize(size)
@@ -113,7 +121,14 @@ local function flashGuardZones(size)
         for _,v in pairs(GuardZones.Buttons) do tw(v,1.4,{BackgroundTransparency=1},Enum.EasingStyle.Quart) end
     end)
 end
-local function setGuardEnabled(on) GuardZones.Enabled=on;applyGuardSize(GuardZones.Size) end
+local function setGuardEnabled(on)
+    GuardZones.Enabled=on
+    GuardZones.FadeToken=GuardZones.FadeToken+1
+    if not on then
+        for _,v in pairs(GuardZones.Buttons) do v.BackgroundTransparency=1 end
+    end
+    applyGuardSize(GuardZones.Size)
+end
 setupGuardZones()
 
 local function stopSpectate() spectateTarget=nil local _,h=getChar() if h then CAM.CameraSubject=h end if spectateSetOn then spectateSetOn(false) end end
@@ -732,6 +747,8 @@ local function closeAllFeatures()
     ESP_SETTINGS.HighlightEnabled=false
     StopFlingLoop();StopSpin();TP_Loop=false
     if TP_LoopConn then TP_LoopConn:Disconnect();TP_LoopConn=nil end
+    setGuardEnabled(false)
+    applyGuardSize(0)
     local _,h=getChar();if h then h.WalkSpeed=baseSpeed;h.UseJumpPower=true;h.JumpPower=BASE_JUMP end
     clearAllESP()
 end
@@ -978,9 +995,8 @@ local function runLoadScreen()
     task.wait(1.6);pC:Disconnect()
     aO.tweenTo(1,0.35);task.wait(0.37)
     okCard.Visible=false;okCard:Destroy();root:Destroy()
-    tw(mask,0.8,{BackgroundTransparency=1},Enum.EasingStyle.Quart)
-    tw(scene,0.8,{BackgroundTransparency=1},Enum.EasingStyle.Quart)
-    task.wait(0.82)
+    tw(mask,0.7,{BackgroundTransparency=0},Enum.EasingStyle.Quart)
+    task.wait(0.72)
     if animConn then animConn:Disconnect();animConn=nil end
     gui:Destroy()
 end
@@ -990,12 +1006,53 @@ local function buildUI()
     local WIN_W,WIN_H=320,340
     local mainHomePos=UD.fromOffset(math.max(8,(CAM.ViewportSize.X-WIN_W)/2),math.max(8,(CAM.ViewportSize.Y-WIN_H)/2))
     local main=new("Frame",{Position=mainHomePos,Size=UD.fromOffset(WIN_W,WIN_H),BackgroundColor3=C.Bg,BorderSizePixel=0,Visible=true,Parent=gui})
+    Spatial.MainRef=main
     corner(main,8)
     new("ImageLabel",{Name="VoidBackground",Size=UD.fromScale(1,1),Position=UD.fromScale(0,0),BackgroundTransparency=1,Image="rbxassetid://131769990624851",ImageTransparency=0.35,ScaleType=Enum.ScaleType.Crop,ZIndex=0,Parent=main})
     corner(main:FindFirstChild("VoidBackground"),8)
     local mainStroke=stroke(main,C.Cyan,1,0.5)
     techCorners(main,C.Cyan,14,2,0.1)
     local mainScale=fitScale(main,WIN_W,30,0.75)
+    local function applySpatialOffset()
+        if Spatial.BB then
+            Spatial.BB.StudsOffset=Vector3.new(0,Spatial.Height,Spatial.Depth)
+        end
+    end
+    local function setSpatialMode(on)
+        if on==Spatial.Enabled then return end
+        local char=LP.Character
+        if on then
+            if not char then notify("3D模式","角色未加载");return end
+            local hrp=char:FindFirstChild("HumanoidRootPart")
+            if not hrp then notify("3D模式","角色未加载");return end
+            Spatial.HomePos=main.Position
+            Spatial.HomeAnchor=main.AnchorPoint
+            local bb=new("BillboardGui",{
+                Name="VoidBillboard",
+                Size=UDim2.new(0,320,0,340),
+                StudsOffset=Vector3.new(0,Spatial.Height,Spatial.Depth),
+                AlwaysOnTop=true,
+                ResetOnSpawn=false,
+                LightInfluence=0,
+                MaxDistance=500,
+                Parent=hrp,
+            })
+            Spatial.BB=bb
+            Spatial.Enabled=true
+            main.Parent=bb
+            main.AnchorPoint=Vector2.new(0.5,0.5)
+            main.Position=UD.new(0.5,0,0.5,0)
+            mainScale.Scale=1
+            notify("3D模式","已开启")
+        else
+            Spatial.Enabled=false
+            main.Parent=gui
+            main.AnchorPoint=Spatial.HomeAnchor or Vector2.new(0,0)
+            main.Position=Spatial.HomePos or mainHomePos
+            if Spatial.BB then Spatial.BB:Destroy();Spatial.BB=nil end
+            notify("3D模式","已关闭")
+        end
+    end
     local topGrad=grad(new("Frame",{Size=UD.new(1,-24,0,2),Position=UD.new(0,12,0,0),BackgroundColor3=Color3.new(1,1,1),BorderSizePixel=0,Parent=main}),C.Cyan,C.Purple,0)
     topGrad.Transparency=NumberSequence.new({NumberSequenceKeypoint.new(0,1),NumberSequenceKeypoint.new(.5,0),NumberSequenceKeypoint.new(1,1)})
     local titleBar=new("Frame",{Size=UD.new(1,0,0,32),BackgroundColor3=C.Panel,BackgroundTransparency=0.35,BorderSizePixel=0,Parent=main})
@@ -1029,7 +1086,7 @@ local function buildUI()
     for i,name in ipairs(tabs) do tabBtns[i]=new("TextButton",{Position=UD.new((i-1)/tabCount,0,0,0),Size=UD.new(1/tabCount,0,1,0),BackgroundTransparency=1,Text=name,TextColor3=(i==1) and C.Text or C.Dim,Font=Enum.Font.GothamBold,TextSize=10,AutoButtonColor=false,TextXAlignment=Enum.TextXAlignment.Center,Parent=tabBar}) end
     local content=new("Frame",{Position=UD.new(0,0,0,58),Size=UD.new(1,0,1,-84),BackgroundTransparency=1,ClipsDescendants=true,Parent=main})
     local pages={}
-    local pageCanvas={300,400,420,620,190,560}
+    local pageCanvas={440,400,420,620,190,560}
     for i=1,tabCount do
         pages[i]=new("ScrollingFrame",{Position=UD.new(0,0,0,0),Size=UD.fromScale(1,1),BackgroundTransparency=1,BorderSizePixel=0,ScrollBarThickness=3,ScrollBarImageColor3=C.Cyan,CanvasSize=UD.new(0,0,0,pageCanvas[i] or 300),ScrollingDirection=Enum.ScrollingDirection.Y,Visible=(i==1),Parent=content})
     end
@@ -1086,9 +1143,11 @@ local function buildUI()
         corner(dot,5.5);stroke(dot,C.Bg,2,0)
         local hit=new("TextButton",{Size=UD.fromScale(1,1),BackgroundTransparency=1,Text="",AutoButtonColor=false,Parent=track})
         local dragging=false
+        local focused=false
         local function setV(v,fire)
             v=rnd(v);local pp=(v-minV)/(maxV-minV)
-            fill.Size=UD.new(pp,0,1,0);dot.Position=UD.new(pp,0,.5,0);vb.Text=fmt(v)
+            fill.Size=UD.new(pp,0,1,0);dot.Position=UD.new(pp,0,.5,0)
+            if not focused then vb.Text=fmt(v) end
             if fire and cb then cb(v) end
         end
         local function setVal(v) setV(v,true) end
@@ -1096,9 +1155,9 @@ local function buildUI()
             local pp=math.clamp((input.Position.X-track.AbsolutePosition.X)/track.AbsoluteSize.X,0,1)
             local v=rnd(minV+pp*(maxV-minV))
             local pp2=(v-minV)/(maxV-minV)
-            tw(fill,0.14,{Size=UD.new(pp2,0,1,0)},Enum.EasingStyle.Quint)
-            tw(dot,0.14,{Position=UD.new(pp2,0,.5,0)},Enum.EasingStyle.Quint)
-            vb.Text=fmt(v)
+            fill.Size=UD.new(pp2,0,1,0)
+            dot.Position=UD.new(pp2,0,.5,0)
+            if not focused then vb.Text=fmt(v) end
             if cb then cb(v) end
         end
         hit.InputBegan:Connect(function(input)
@@ -1114,8 +1173,19 @@ local function buildUI()
                 dragging=false
             end
         end)
+        vb.Focused:Connect(function()
+            focused=true
+            task.defer(function()
+                if focused then
+                    vb.Text=""
+                    pcall(function() vb.CursorPosition=0 end)
+                end
+            end)
+        end)
         vb.FocusLost:Connect(function()
-            local n=tonumber((vb.Text:gsub("[^%d%.%-]","")))
+            focused=false
+            local cleaned=vb.Text:gsub("[^%d%.%-]","")
+            local n=tonumber(cleaned)
             if n then setV(n,true) else setV(defV,false) end
         end)
         table.insert(resetSliders,{fn=setVal,default=defV})
@@ -1245,6 +1315,9 @@ local function buildUI()
         end)
         makeToggle(p,204,"屏幕防误触","LOCK  EDGE  TOUCH",C.Red,false,function(on) setGuardEnabled(on) end)
         makeSlider(p,244,"防误触范围",C.Red,0,200,GuardZones.Size," px",0,function(v) flashGuardZones(v) end)
+        makeToggle(p,288,"3D空间模式","SPATIAL MODE (Billboard)",C.Purple,false,function(on) setSpatialMode(on) end)
+        makeSlider(p,328,"3D高度偏移",C.Purple,0,20,Spatial.Height,"",1,function(v) Spatial.Height=v;applySpatialOffset() end)
+        makeSlider(p,368,"3D前后偏移",C.Purple,-20,20,Spatial.Depth,"",1,function(v) Spatial.Depth=v;applySpatialOffset() end)
     end
     do
         local p=pages[2]
@@ -1317,7 +1390,7 @@ local function buildUI()
     end
     do
         local p=pages[5]
-        local colors={{Color=Color3.fromRGB(255,215,0)},{Color=Color3.fromRGB(255,60,60)},{Color=Color3.fromRGB(60,150,255)},{Color=Color3.fromRGB(60,255,120)},{Color=Color3.fromRGB(180,80,255)},{Color=Color3.fromRGB(255,255,255)}}
+        local colors={{Color=Color3.fromRGB(255,215,0)},{Color=Color3.fromRGB(255,60,60)},{Color=Color3.fromRGB(60,150,255)},{Color3.fromRGB(60,255,120)},{Color3.fromRGB(180,80,255)},{Color3.fromRGB(255,255,255)}}
         makeToggle(p,6,"启用碰撞箱","HITBOX TOGGLE",C.Green,false,function(on) setHitboxEnabled(on) end)
         makeSlider(p,46,"碰撞箱大小",C.Green,1,50,State.HitboxSize,"",0,function(v) setHitboxSize(v) end)
         makeSlider(p,86,"碰撞箱透明度",C.Green,0,1,State.HitboxTransparency,"",2,function(v) setHitboxTransparency(v) end)
@@ -1402,7 +1475,7 @@ local function buildUI()
         orb.Rotation=orb.Rotation+dt*140
         msc.Scale=1+((math.sin(os.clock()*3)+1)/2)*0.04
     end)
-    main:GetPropertyChangedSignal("Position"):Connect(function() if main.Visible then mainHomePos=main.Position end end)
+    main:GetPropertyChangedSignal("Position"):Connect(function() if main.Visible and not Spatial.Enabled then mainHomePos=main.Position end end)
     mini:GetPropertyChangedSignal("Position"):Connect(function() if mini.Visible then miniHomePos=mini.Position end end)
     makeDraggable(mini,mini,function()
         mini.Visible=false
